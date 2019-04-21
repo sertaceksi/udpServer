@@ -6,6 +6,8 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.zip.CRC32;
 
 public class Server extends Thread {
@@ -13,9 +15,11 @@ public class Server extends Thread {
     private boolean running;
     private byte[] receiverBuf = new byte[20];
     private int lastSequence = 0;
+    private Map<Integer, Integer> nackCount;
 
     public Server() throws SocketException {
         socket = new DatagramSocket(4445);
+        nackCount = new HashMap<Integer, Integer>();
     }
 
     public void run() {
@@ -29,22 +33,25 @@ public class Server extends Thread {
                 Integer clientId = wrapped.getInt(0);
                 Integer sequenceId = wrapped.getInt(4);
                 Integer value = wrapped.getInt(8);
-                ByteBuffer byteBuffer;
+                ByteBuffer byteBuffer = null;
                 InetAddress address = packet.getAddress();
                 int port = packet.getPort();
                 if (lastSequence == 0 || lastSequence + 1 == sequenceId) {
                     if (isCheckSumTrue(packet.getData())) {
-                        byteBuffer = generateServerResponsePacket(packet, clientId, sequenceId, (byte) 1);
+                        byteBuffer = generateServerResponsePacket(clientId, sequenceId, (byte) 1);
                         createValuesFile(clientId, sequenceId, value);
-                    } else {
-                        byteBuffer = generateServerResponsePacket(packet, clientId, sequenceId, (byte) 0);
+                    } else if (generateNackRecordOnServer(sequenceId)) {
+                        byteBuffer = generateServerResponsePacket(clientId, sequenceId, (byte) 0);
                     }
-                } else {
-                    byteBuffer = generateServerResponsePacket(packet, clientId, lastSequence+1, (byte) 0);
+                } else if (generateNackRecordOnServer(sequenceId)) {
+                    byteBuffer = generateServerResponsePacket(clientId, lastSequence + 1, (byte) 0);
                 }
-                senderBuf = byteBuffer.array();
-                packet = new DatagramPacket(senderBuf, senderBuf.length, address, port);
-                socket.send(packet);
+
+                if (byteBuffer != null) {
+                    senderBuf = byteBuffer.array();
+                    packet = new DatagramPacket(senderBuf, senderBuf.length, address, port);
+                    socket.send(packet);
+                }
 
             }
             socket.close();
@@ -54,9 +61,28 @@ public class Server extends Thread {
 
     }
 
+    private boolean generateNackRecordOnServer(Integer sequenceId) {
+        boolean generateNackRecord = false;
+        if (!nackCount.containsKey(sequenceId)) {
+            nackCount.put(sequenceId, 1);
+            generateNackRecord = true;
+        } else if (nackCount.get(sequenceId) < 3) {
+            int temp = nackCount.get(sequenceId);
+            temp++;
+            nackCount.put(sequenceId, temp);
+            generateNackRecord = true;
+        }
+        return generateNackRecord;
+    }
+
     private void createValuesFile(Integer clientId, Integer sequenceId, Integer value) throws IOException {
         String fileName = clientId.toString() + ".values.txt";
-        FileWriter fileWriter = new FileWriter(fileName,true);
+        FileWriter fileWriter;
+        if (lastSequence == 0) {
+            fileWriter = new FileWriter(fileName);
+        } else {
+            fileWriter = new FileWriter(fileName, true);
+        }
         BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
         bufferedWriter.write(newLine(clientId, sequenceId, value));
         bufferedWriter.close();
@@ -78,21 +104,15 @@ public class Server extends Thread {
         return checksum.getValue() == wrapped.getLong(12);
     }
 
-    private ByteBuffer generateServerResponsePacket(DatagramPacket packet, Integer clientId, Integer sequenceId, byte ack) {
+    private ByteBuffer generateServerResponsePacket(Integer clientId, Integer sequenceId, byte ack) {
         byte[] clientIdBytes = ByteBuffer.allocate(4).putInt(clientId).array();
         byte[] sequenceIdBytes = ByteBuffer.allocate(4).putInt(sequenceId).array();
-
         ByteBuffer byteBuffer = ByteBuffer.allocate(9);
         byteBuffer.put(clientIdBytes);
         byteBuffer.put(sequenceIdBytes);
         byte[] ackNumBytes;
-        if (isCheckSumTrue(packet.getData())) {
-            ackNumBytes = ByteBuffer.allocate(1).put((byte) 1).array();
-            byteBuffer.put(ackNumBytes);
-        } else {
-            ackNumBytes = ByteBuffer.allocate(1).put((byte) 0).array();
-            byteBuffer.put(ackNumBytes);
-        }
+        ackNumBytes = ByteBuffer.allocate(1).put(ack).array();
+        byteBuffer.put(ackNumBytes);
         return byteBuffer;
     }
 }
