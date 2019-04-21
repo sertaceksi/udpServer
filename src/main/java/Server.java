@@ -12,10 +12,12 @@ import java.util.zip.CRC32;
 
 public class Server extends Thread {
     private DatagramSocket socket;
-    private boolean running;
     private byte[] receiverBuf = new byte[Constant.MESSAGE_SIZE];
     private int lastSequence = 0;
     private Map<Integer, Integer> nackCount;
+    private int clientId;
+    private int sequenceId;
+    private int value;
 
     Server() throws SocketException {
         socket = new DatagramSocket(Constant.PORT);
@@ -24,71 +26,80 @@ public class Server extends Thread {
 
     public void run() {
         byte[] senderBuf;
-        running = true;
         try {
-            while (running) {
+            while (true) {
                 DatagramPacket packet = new DatagramPacket(receiverBuf, receiverBuf.length);
                 socket.receive(packet);
                 ByteBuffer wrapped = ByteBuffer.wrap(packet.getData());
-                Integer clientId = wrapped.getInt(Constant.CLIENT_INDEX);
-                Integer sequenceId = wrapped.getInt(Constant.SEQUENCE_INDEX);
-                Integer value = wrapped.getInt(Constant.VALUE_INDEX);
+                clientId = wrapped.getInt(Constant.CLIENT_INDEX);
+                sequenceId = wrapped.getInt(Constant.SEQUENCE_INDEX);
+                value = wrapped.getInt(Constant.VALUE_INDEX);
                 ByteBuffer byteBuffer = null;
                 InetAddress address = packet.getAddress();
                 int port = packet.getPort();
                 if (lastSequence == 0 || lastSequence + 1 == sequenceId) {
                     if (isCheckSumTrue(packet.getData())) {
-                        byteBuffer = generateServerResponsePacket(clientId, sequenceId, Constant.ACK_VALUE);
-                        createValuesFile(clientId, sequenceId, value);
-                    } else if (generateNackRecordOnServer(sequenceId)) {
-                        byteBuffer = generateServerResponsePacket(clientId, sequenceId, Constant.NACK_VALUE);
+                        byteBuffer = generateResponseBuffer(Constant.ACK_VALUE);
+                        createValuesFile();
+                        updateOrCreateSumFile();
+                    } else {
+                        generateNackCount();
+                        byteBuffer = generateResponseBuffer(Constant.NACK_VALUE);
                     }
-                } else if (generateNackRecordOnServer(sequenceId)) {
-                    byteBuffer = generateServerResponsePacket(clientId, lastSequence + 1, Constant.NACK_VALUE);
+                } else {
+                    generateNackCount();
+                    byteBuffer = generateResponseBuffer(Constant.NACK_VALUE);
                 }
                 if (byteBuffer != null) {
                     senderBuf = byteBuffer.array();
                     packet = new DatagramPacket(senderBuf, senderBuf.length, address, port);
                     socket.send(packet);
                 }
-
             }
-            socket.close();
         } catch (IOException e) {
+            socket.close();
             e.printStackTrace();
         }
-
     }
 
-    private boolean generateNackRecordOnServer(Integer sequenceId) {
-        boolean generateNackRecord = false;
+
+    private void generateNackCount() {
         if (!nackCount.containsKey(sequenceId)) {
             nackCount.put(sequenceId, 1);
-            generateNackRecord = true;
         } else if (nackCount.get(sequenceId) < Constant.MAX_TRY) {
             int temp = nackCount.get(sequenceId);
             temp++;
             nackCount.put(sequenceId, temp);
-            generateNackRecord = true;
         }
-        return generateNackRecord;
+        if (nackCount.get(sequenceId).equals(Constant.MAX_TRY)) {
+            generateMissedFile();
+        }
     }
 
-    private void createValuesFile(Integer clientId, Integer sequenceId, Integer value) throws IOException {
-        String fileName = clientId.toString() + Constant.VALUES_FILE_EXTENSION;
+    private void generateMissedFile() {
+
+    }
+
+    private void createValuesFile() throws IOException {
+        String fileName = clientId + Constant.VALUES_FILE_EXTENSION;
         FileWriter fileWriter;
         if (lastSequence == 0) {
             fileWriter = new FileWriter(fileName);
+            lastSequence = sequenceId;
         } else {
             fileWriter = new FileWriter(fileName, true);
+            lastSequence++;
         }
         BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
-        bufferedWriter.write(newLine(clientId, sequenceId, value));
+        bufferedWriter.write(newLine());
         bufferedWriter.close();
     }
 
-    private String newLine(Integer clientId, Integer sequenceId, Integer value) {
-        return clientId + "," + sequenceId + "," + value + "\n";
+    private void updateOrCreateSumFile() {
+    }
+
+    private String newLine() {
+        return "\n" + clientId + "," + sequenceId + "," + value;
     }
 
     private boolean isCheckSumTrue(byte[] dataArray) {
@@ -103,7 +114,7 @@ public class Server extends Thread {
         return checksum.getValue() == wrapped.getLong(Constant.CHECKSUM_INDEX);
     }
 
-    private ByteBuffer generateServerResponsePacket(Integer clientId, Integer sequenceId, byte ack) {
+    private ByteBuffer generateResponseBuffer(byte ack) {
         byte[] clientIdBytes = ByteBuffer.allocate(Constant.CLIENT_SIZE).putInt(clientId).array();
         byte[] sequenceIdBytes = ByteBuffer.allocate(Constant.SEQUENCE_SIZE).putInt(sequenceId).array();
         ByteBuffer byteBuffer = ByteBuffer.allocate(Constant.NOTIFY_MESSAGE_SIZE);
