@@ -81,7 +81,7 @@ public class Server extends Thread {
         fileWriter = new FileWriter(fileName, true);
         lastSequence++;
         BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
-        bufferedWriter.write(newLine(clientId, sequenceId));
+        bufferedWriter.write(newLine(sequenceId));
         bufferedWriter.close();
     }
 
@@ -139,8 +139,8 @@ public class Server extends Thread {
         return strLine;
     }
 
-    private String newLine(int clientId, int sequenceId) {
-        return "\n" + clientId + "," + sequenceId;
+    private String newLine(int sequenceId) {
+        return "\n" + sequenceId;
     }
 
     private String newLine(int clientId, int sequenceId, int value) {
