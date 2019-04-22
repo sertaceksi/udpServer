@@ -1,6 +1,4 @@
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -34,7 +32,7 @@ public class Server extends Thread {
                 clientId = wrapped.getInt(Constant.CLIENT_INDEX);
                 sequenceId = wrapped.getInt(Constant.SEQUENCE_INDEX);
                 value = wrapped.getInt(Constant.VALUE_INDEX);
-                ByteBuffer byteBuffer = null;
+                ByteBuffer byteBuffer;
                 InetAddress address = packet.getAddress();
                 int port = packet.getPort();
                 if (lastSequence == 0 || lastSequence + 1 == sequenceId) {
@@ -63,7 +61,7 @@ public class Server extends Thread {
     }
 
 
-    private void generateNackCount() {
+    private void generateNackCount() throws IOException {
         if (!nackCount.containsKey(sequenceId)) {
             nackCount.put(sequenceId, 1);
         } else if (nackCount.get(sequenceId) < Constant.MAX_TRY) {
@@ -72,12 +70,19 @@ public class Server extends Thread {
             nackCount.put(sequenceId, temp);
         }
         if (nackCount.get(sequenceId).equals(Constant.MAX_TRY)) {
+            nackCount.put(sequenceId, 0);
             generateMissedFile();
         }
     }
 
-    private void generateMissedFile() {
-
+    private void generateMissedFile() throws IOException {
+        String fileName = clientId + Constant.MISSED_FILE_EXTENSION;
+        FileWriter fileWriter;
+        fileWriter = new FileWriter(fileName, true);
+        lastSequence++;
+        BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
+        bufferedWriter.write(newLine(clientId, sequenceId));
+        bufferedWriter.close();
     }
 
     private void createValuesFile() throws IOException {
@@ -91,14 +96,54 @@ public class Server extends Thread {
             lastSequence++;
         }
         BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
-        bufferedWriter.write(newLine());
+        bufferedWriter.write(newLine(clientId, sequenceId, value));
         bufferedWriter.close();
     }
 
     private void updateOrCreateSumFile() {
+        try {
+            String fileName = clientId + Constant.SUM_FILE_EXTENSION;
+            String upToDateLine = getUpToDateLine(fileName);
+            FileWriter fileWriter;
+            fileWriter = new FileWriter(fileName, false);
+            BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
+            bufferedWriter.write(upToDateLine);
+            bufferedWriter.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 
-    private String newLine() {
+    private String getUpToDateLine(String fileName) {
+        String firstLine = readSumFile(fileName);
+        String[] arr = firstLine.split(",");
+        int prevSumOfValue = Integer.parseInt(arr[0]);
+        int prevNoOfValues = Integer.parseInt(arr[1]);
+        int upToDateSumOfValue = (prevSumOfValue + value) / (++prevNoOfValues);
+        return upToDateSumOfValue + "," + prevNoOfValues;
+    }
+
+    private String readSumFile(String fileName) {
+        String strLine = "0,0";
+        try {
+            BufferedReader b = new BufferedReader(new FileReader(fileName));
+            while (b.readLine() != null) {
+                strLine = b.readLine();
+            }
+        } catch (FileNotFoundException e) {
+            System.err.println("File not found");
+        } catch (IOException e) {
+            System.err.println("Unable to read the file.");
+        }
+        return strLine;
+    }
+
+    private String newLine(int clientId, int sequenceId) {
+        return "\n" + clientId + "," + sequenceId;
+    }
+
+    private String newLine(int clientId, int sequenceId, int value) {
         return "\n" + clientId + "," + sequenceId + "," + value;
     }
 

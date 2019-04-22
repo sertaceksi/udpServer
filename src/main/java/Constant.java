@@ -14,4 +14,6 @@ class Constant {
     final static byte NACK_VALUE = 1;
     final static Integer MAX_TRY = 3;
     final static String VALUES_FILE_EXTENSION = ".values.txt";
+    final static String MISSED_FILE_EXTENSION = ".missed.txt";
+    final static String SUM_FILE_EXTENSION = ".sum.txt";
 }
