@@ -19,7 +19,7 @@ public class Server extends Thread {
 
     Server() throws SocketException {
         socket = new DatagramSocket(Constant.PORT);
-        nackCount = new HashMap<Integer, Integer>();
+        nackCount = new HashMap<>();
     }
 
     public void run() {
@@ -105,7 +105,7 @@ public class Server extends Thread {
             String fileName = clientId + Constant.SUM_FILE_EXTENSION;
             String upToDateLine = getUpToDateLine(fileName);
             FileWriter fileWriter;
-            fileWriter = new FileWriter(fileName, false);
+            fileWriter = new FileWriter(fileName);
             BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
             bufferedWriter.write(upToDateLine);
             bufferedWriter.close();
@@ -120,21 +120,23 @@ public class Server extends Thread {
         String[] arr = firstLine.split(",");
         int prevSumOfValue = Integer.parseInt(arr[0]);
         int prevNoOfValues = Integer.parseInt(arr[1]);
-        int upToDateSumOfValue = (prevSumOfValue + value) / (++prevNoOfValues);
+        int upToDateSumOfValue = (prevSumOfValue * prevNoOfValues + value) / (++prevNoOfValues);
         return upToDateSumOfValue + "," + prevNoOfValues;
     }
 
     private String readSumFile(String fileName) {
         String strLine = "0,0";
+        File f = new File(fileName);
         try {
-            BufferedReader b = new BufferedReader(new FileReader(fileName));
-            while (b.readLine() != null) {
-                strLine = b.readLine();
+            if (f.exists()) {
+                BufferedReader b = new BufferedReader(new FileReader(fileName));
+                if ((strLine = b.readLine()) != null) {
+                    return strLine;
+                }
+                b.close();
             }
-        } catch (FileNotFoundException e) {
-            System.err.println("File not found");
         } catch (IOException e) {
-            System.err.println("Unable to read the file.");
+            e.printStackTrace();
         }
         return strLine;
     }
